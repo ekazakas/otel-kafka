@@ -23,7 +23,7 @@ func TestConfig_Valid(t *testing.T) {
 	}
 
 	bootstrapHost := "localhost"
-	bootstrapPort := 9092
+	bootstrapPort := int32(9092)
 	consumerGroup := "test-consumer-group"
 	timeout := 10 * time.Second
 	tCfg := kafka.ConfigMap{
@@ -36,6 +36,7 @@ func TestConfig_Valid(t *testing.T) {
 		WithMeterProvider(meterProvider),
 		WithPropagator(propagator),
 		WithCustomAttributeInjector(attributeInjector),
+		WithConsumerSpanTimeout(timeout),
 		withConfig(tCfg),
 	)
 

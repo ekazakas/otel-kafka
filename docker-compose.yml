@@ -1,0 +1,85 @@
+services:
+  broker:
+    image: apache/kafka-native:4.0.0
+    hostname: broker
+    container_name: broker
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker:29093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+
+  kafka-init-topics:
+    image: confluentinc/cp-kafka:7.9.2
+    depends_on:
+      - broker
+    command: |
+      echo "Waiting for Kafka to be ready..."
+      cub kafka-ready -b broker:29092 1 30
+      kafka-topics --create --topic test-topic --partitions 3 --replication-factor 1 --if-not-exists --bootstrap-server broker:29092
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    depends_on:
+      - broker
+    container_name: kafka-ui
+    ports:
+      - "8089:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=broker:29092
+
+  consumer:
+    build:
+      context: .
+      dockerfile: examples/consumer/Dockerfile
+    depends_on:
+      - broker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      KAFKA_TOPIC: test-topic
+    ports:
+      - "2223:2223"
+
+  producer:
+    build:
+      context: .
+      dockerfile: examples/producer/Dockerfile
+    depends_on:
+      - broker
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      KAFKA_TOPIC: test-topic
+    ports:
+      - "2224:2224"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.71.0
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+      - "14250:14250"
+      - "14268:14268"
+      - "14269:14269"
+      - "9411:9411"
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./examples/prometheus.yml:/etc/prometheus/prometheus.yml

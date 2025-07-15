@@ -13,7 +13,11 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -65,22 +69,36 @@ func CreateMeterProvider(serviceName string) (*metric.MeterProvider, error) {
 	), nil
 }
 
-func ServeMetrics(ctx context.Context, port int) {
+func ServeMetrics(ctx context.Context, port int, successLog *log.Logger, failureLog *log.Logger) {
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", port),
 	}
 	defer func() {
+		successLog.Println("Shutting down metrics Server")
+
 		shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			panic(err)
+			failureLog.Panicf("Failed to shutdown metrics Server: %s", err)
 		}
+
+		successLog.Println("Metrics Server shutdown complete")
 	}()
 
 	http.Handle("/metrics", promhttp.Handler())
 
-	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		panic(err)
-	}
+	successLog.Printf("Metrics Server listening on port %d", port)
+
+	go func() {
+		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			failureLog.Panicf("Metrics Server error: %s", err)
+		}
+
+		successLog.Println("Metrics Server stopped serving new connections")
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
 }

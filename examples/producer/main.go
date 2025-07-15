@@ -15,29 +15,40 @@ import (
 )
 
 func main() {
+	successLog := log.New(os.Stdout, "[otel-kafka]", log.LstdFlags)
+	failureLog := log.New(os.Stderr, "[otel-kafka]", log.LstdFlags)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	serviceName := "example-consumer"
 
-	traceProvider, err := examples.CreateTracer(serviceName)
+	tracerProvider, err := examples.CreateTracer(serviceName)
 	if err != nil {
-		panic(err)
+		failureLog.Panicf("Failed to create TracerProvider: %s", err)
 	}
 	defer func() {
-		if err := traceProvider.Shutdown(ctx); err != nil {
-			panic(err)
+		successLog.Println("Shutting down TracerProvider")
+
+		if err := tracerProvider.Shutdown(ctx); err != nil {
+			failureLog.Panicf("Failed to shutdown TracerProvider: %s", err)
 		}
+
+		successLog.Println("TracerProvider shutdown complete")
 	}()
 
 	meterProvider, err := examples.CreateMeterProvider(serviceName)
 	if err != nil {
-		panic(err)
+		failureLog.Panicf("Failed to create MeterProvider: %s", err)
 	}
 	defer func() {
+		successLog.Println("Shutting down MeterProvider")
+
 		if err := meterProvider.Shutdown(ctx); err != nil {
-			panic(err)
+			failureLog.Panicf("Failed to shutdown MeterProvider: %s", err)
 		}
+
+		successLog.Println("MeterProvider shutdown complete")
 	}()
 
 	propagator := propagation.TraceContext{}
@@ -46,33 +57,39 @@ func main() {
 		kafka.ConfigMap{
 			"bootstrap.servers": os.Getenv("KAFKA_BOOTSTRAP_SERVERS"),
 		},
-		otelkafka.WithTracerProvider(traceProvider),
+		otelkafka.WithTracerProvider(tracerProvider),
 		otelkafka.WithMeterProvider(meterProvider),
 		otelkafka.WithPropagator(propagator),
 	)
 	if err != nil {
-		panic(err)
+		failureLog.Panicf("Failed to create Producer: %s", err)
 	}
-	defer producer.Close()
+	defer func() {
+		successLog.Println("Shutting down Producer")
+
+		producer.Close()
+
+		successLog.Println("Producer shutdown complete")
+	}()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	go examples.ServeMetrics(ctx, 2223)
+	go examples.ServeMetrics(ctx, 2224, successLog, failureLog)
 
 	topic := os.Getenv("KAFKA_TOPIC")
 
-	successLog := log.New(os.Stdout, "[otel-kafka]", log.LstdFlags)
-	failureLog := log.New(os.Stderr, "[otel-kafka]", log.LstdFlags)
-
-	go func() {
-		ctx, span := traceProvider.Tracer("example-producer").Start(ctx, "produce message")
-		defer span.End()
-
-		for i := 0; ; i++ {
+	for i := 0; ; i++ {
+		select {
+		case <-sigChan:
+			return
+		default:
 			time.Sleep(1 * time.Second)
 
 			func() {
+				ctx, span := tracerProvider.Tracer("example-producer").Start(ctx, "produce message")
+				defer span.End()
+
 				deliveryChan := make(chan kafka.Event)
 				defer close(deliveryChan)
 
@@ -105,12 +122,10 @@ func main() {
 					if m.TopicPartition.Error != nil {
 						failureLog.Printf("Delivery failed for message: %s", m.TopicPartition.Error)
 					} else {
-						successLog.Printf("Delivered messageto topic %s partition %d at offset %d", *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+						successLog.Printf("Delivered message to topic %s partition %d at offset %d", *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
 					}
 				}
 			}()
 		}
-	}()
-
-	<-sigChan
+	}
 }

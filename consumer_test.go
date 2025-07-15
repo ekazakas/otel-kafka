@@ -81,6 +81,7 @@ func TestConsumer_OpenTelemetry(t *testing.T) {
 			},
 			otelkafka.WithTracerProvider(traceProvider),
 			otelkafka.WithPropagator(propagation.TraceContext{}),
+			otelkafka.WithConsumerSpanTimeout(time.Millisecond*100),
 		)
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -120,10 +121,13 @@ func TestConsumer_OpenTelemetry(t *testing.T) {
 		inMsg := consumedMessages[0]
 		require.Equal(t, outMsg.TopicPartition.Topic, inMsg.TopicPartition.Topic)
 
-		require.NoError(t, traceProvider.ForceFlush(ctx))
+		require.Eventually(t, func() bool {
+			require.NoError(t, traceProvider.ForceFlush(ctx))
+
+			return len(inMemorySpanExporter.GetSpans()) == 2
+		}, time.Second*5, time.Millisecond*100)
 
 		exportedSpans := inMemorySpanExporter.GetSpans()
-		require.Len(t, exportedSpans, 2)
 
 		producerSpan := exportedSpans[0]
 
