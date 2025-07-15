@@ -21,14 +21,13 @@ func TestGetMessageSize(t *testing.T) {
 		Value: []byte("test_value"),
 	}
 
-	require.Equal(t, headersLength(msg.Headers)+len(msg.Key)+len(msg.Value), GetMessageSize(msg))
+	require.Equal(t, headersSize(msg.Headers)+len(msg.Key)+len(msg.Value), GetMessageSize(msg))
 }
 
-func headersLength(headers []kafka.Header) int {
-	length := 0
+func headersSize(headers []kafka.Header) (size int) {
 	for _, header := range headers {
-		length += len(header.Key) + len(header.Value)
+		size += len(header.Key) + len(header.Value)
 	}
 
-	return length
+	return size
 }

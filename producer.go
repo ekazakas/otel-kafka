@@ -16,6 +16,7 @@ import (
 )
 
 type (
+	// Producer is a wrapper around kafka.Producer that adds OpenTelemetry tracing and metrics.
 	Producer struct {
 		*kafka.Producer
 
@@ -26,8 +27,10 @@ type (
 	}
 )
 
-// NewProducer Returns either new kafka.Producer with given configuration, or
-// an error if provided configuration is not valid
+// NewProducer returns a new kafka.Producer instance with OpenTelemetry features,
+// configured with the provided kafka.ConfigMap and otelkafka.Option(s).
+// It returns an error if the Kafka producer cannot be created or if metrics
+// initialization fails.
 func NewProducer(config kafka.ConfigMap, opts ...Option) (*Producer, error) {
 	producer, err := kafka.NewProducer(&config)
 	if err != nil {
@@ -37,7 +40,9 @@ func NewProducer(config kafka.ConfigMap, opts ...Option) (*Producer, error) {
 	return WrapOTELProducer(producer, append(opts, withConfig(config))...)
 }
 
-// WrapOTELProducer Decorates provided Producer instance with OTEL features
+// WrapOTELProducer decorates an existing kafka.Producer instance with
+// OpenTelemetry tracing and metrics capabilities.
+// It returns the wrapped Producer or an error if metrics initialization fails.
 func WrapOTELProducer(producer *kafka.Producer, opts ...Option) (*Producer, error) {
 	cfg := newOTELConfig(opts...)
 	meter := cfg.MeterProvider.Meter("kafka_producer")
@@ -73,7 +78,10 @@ func WrapOTELProducer(producer *kafka.Producer, opts ...Option) (*Producer, erro
 	}, nil
 }
 
-// Produce calls the underlying Producer.Produce and traces the request.
+// Produce calls the underlying kafka.Producer to send a message to Kafka,
+// while also tracing the production operation and recording relevant metrics.
+// The OpenTelemetry context is propagated through Kafka message headers.
+// The `deliveryChan` is used to deliver the production result asynchronously.
 func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) error {
 	start := time.Now()
 
@@ -92,6 +100,9 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 	highCardinalityAttrs := []attribute.KeyValue{
 		semconv.MessagingKafkaMessageKey(string(msg.Key)),
 		semconv.MessagingMessageBodySize(internal.GetMessageSize(msg)),
+	}
+	if p.cfg.attributeInjectFunc != nil {
+		highCardinalityAttrs = append(highCardinalityAttrs, p.cfg.attributeInjectFunc(msg)...)
 	}
 	attrs := append(lowCardinalityAttrs, highCardinalityAttrs...)
 

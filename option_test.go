@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	tnoop "go.opentelemetry.io/otel/trace/noop"
 	"testing"
+	"time"
 )
 
 func TestConfig_Valid(t *testing.T) {
@@ -24,6 +25,7 @@ func TestConfig_Valid(t *testing.T) {
 	bootstrapHost := "localhost"
 	bootstrapPort := 9092
 	consumerGroup := "test-consumer-group"
+	timeout := 10 * time.Second
 	tCfg := kafka.ConfigMap{
 		"bootstrap.servers": fmt.Sprintf("%s:%d", bootstrapHost, bootstrapPort),
 		"group.id":          consumerGroup,
@@ -42,7 +44,9 @@ func TestConfig_Valid(t *testing.T) {
 	require.Equal(t, propagator, config.Propagator)
 	require.Equal(t, attributeInjector(nil)[0], config.attributeInjectFunc(nil)[0])
 	require.Equal(t, consumerGroup, config.consumerGroup)
+	require.Equal(t, timeout, config.consumerSpanTimeout)
 	require.Equal(t, bootstrapHost, config.bootstrapServerHost)
+	require.Equal(t, bootstrapPort, config.bootstrapServerPort)
 }
 
 func TestConfig_WithEmptyConfigMap(t *testing.T) {

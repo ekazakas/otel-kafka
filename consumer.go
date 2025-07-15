@@ -6,6 +6,7 @@ import (
 	"github.com/ekazakas/otel-kafka/internal"
 	"go.opentelemetry.io/otel/codes"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -17,17 +18,24 @@ import (
 )
 
 type (
+	// Consumer is a wrapper around kafka.Consumer that adds OpenTelemetry tracing and metrics.
 	Consumer struct {
 		*kafka.Consumer
 
-		cfg                  otelConfig
-		messageCounter       metric.Int64Counter
-		messageSizeHistogram metric.Int64Histogram
+		cfg    otelConfig
+		spanCh chan struct{}
+		spanWg sync.WaitGroup
+
+		messageCounter             metric.Int64Counter
+		messageSizeHistogram       metric.Int64Histogram
+		operationDurationHistogram metric.Float64Histogram
 	}
 )
 
-// NewConsumer Returns either new kafka.Consumer with given configuration, or
-// an error if provided configuration is not valid
+// NewConsumer returns a new kafka.Consumer instance with OpenTelemetry features,
+// configured with the provided kafka.ConfigMap and otelkafka.Option(s).
+// It returns an error if the Kafka consumer cannot be created or if metrics
+// initialization fails.
 func NewConsumer(config kafka.ConfigMap, opts ...Option) (*Consumer, error) {
 	consumer, err := kafka.NewConsumer(&config)
 	if err != nil {
@@ -37,7 +45,9 @@ func NewConsumer(config kafka.ConfigMap, opts ...Option) (*Consumer, error) {
 	return WrapOTELConsumer(consumer, append(opts, withConfig(config))...)
 }
 
-// WrapOTELConsumer Decorates provided Consumer instance with OTEL features
+// WrapOTELConsumer decorates an existing kafka.Consumer instance with
+// OpenTelemetry tracing and metrics capabilities.
+// It returns the wrapped Consumer or an error if metrics initialization fails.
 func WrapOTELConsumer(consumer *kafka.Consumer, opts ...Option) (*Consumer, error) {
 	cfg := newOTELConfig(opts...)
 	meter := cfg.MeterProvider.Meter("kafka_consumer")
@@ -56,35 +66,57 @@ func WrapOTELConsumer(consumer *kafka.Consumer, opts ...Option) (*Consumer, erro
 		return nil, fmt.Errorf("failed to create message size metric: %w", err)
 	}
 
+	operationDurationHistogram, err := messagingconv.NewClientOperationDuration(meter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create operation duration metric: %w", err)
+	}
+
 	return &Consumer{
-		Consumer:             consumer,
-		cfg:                  cfg,
-		messageCounter:       messageCounter.Inst(),
-		messageSizeHistogram: messageSizeHistogram,
+		Consumer:                   consumer,
+		cfg:                        cfg,
+		spanCh:                     make(chan struct{}, 1000),
+		messageCounter:             messageCounter.Inst(),
+		messageSizeHistogram:       messageSizeHistogram,
+		operationDurationHistogram: operationDurationHistogram.Inst(),
 	}, nil
 }
 
-// Poll the consumer for messages or events using underlying vintedkafka.Consumer. Messages will be traced
+// Poll polls the consumer for messages or events using the underlying
+// kafka.Consumer. Messages received will be automatically traced
+// and associated metrics will be recorded.
 func (c *Consumer) Poll(timeoutMs int) (event kafka.Event) {
+	c.spanCh <- struct{}{}
+
+	start := time.Now()
+
 	e := c.Consumer.Poll(timeoutMs)
 
 	switch e := e.(type) {
 	case *kafka.Message:
 		lowCardinalityAttrs, highCardinalityAttrs := getConsumedMessageAttrs(e, &c.cfg)
 		ctx, span := c.startSpan(e, lowCardinalityAttrs, highCardinalityAttrs)
-		defer span.End()
-
 		span.SetStatus(codes.Ok, "Success")
+
+		c.spanWg.Add(1)
+
+		go c.watchSpan(span)
 
 		c.messageCounter.Add(ctx, 1, metric.WithAttributes(lowCardinalityAttrs...))
 		c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(e)), metric.WithAttributes(lowCardinalityAttrs...))
+		c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(lowCardinalityAttrs...))
 	}
 
 	return e
 }
 
-// ReadMessage polls the consumer for a message using underlying vintedkafka.Consumer. Messages will be traced
+// ReadMessage polls the consumer for a single message using the underlying
+// kafka.Consumer. Messages received will be automatically traced
+// and associated metrics will be recorded.
 func (c *Consumer) ReadMessage(timeout time.Duration) (*kafka.Message, error) {
+	c.spanCh <- struct{}{}
+
+	start := time.Now()
+
 	msg, err := c.Consumer.ReadMessage(timeout)
 	if err != nil {
 		return nil, err
@@ -92,18 +124,31 @@ func (c *Consumer) ReadMessage(timeout time.Duration) (*kafka.Message, error) {
 
 	lowCardinalityAttrs, highCardinalityAttrs := getConsumedMessageAttrs(msg, &c.cfg)
 
-	// latest span is stored to be closed when the next message is polled or when the consumer is closed
 	ctx, span := c.startSpan(msg, lowCardinalityAttrs, highCardinalityAttrs)
-	defer span.End()
-
 	span.SetStatus(codes.Ok, "Success")
+
+	c.spanWg.Add(1)
+
+	go c.watchSpan(span)
 
 	c.messageCounter.Add(ctx, 1, metric.WithAttributes(lowCardinalityAttrs...))
 	c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(lowCardinalityAttrs...))
+	c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(lowCardinalityAttrs...))
 
 	return msg, nil
 }
 
+// Close closes the underlying confluent-kafka-go Consumer and waits for
+// any active spans to be ended.
+func (c *Consumer) Close() error {
+	c.spanWg.Wait()
+
+	return c.Consumer.Close()
+}
+
+// startSpan extracts the parent span context from the kafka.Message headers,
+// creates a new consumer span, injects the new span context back into the
+// message headers, and returns the new context and span.
 func (c *Consumer) startSpan(msg *kafka.Message, lowCardinalityAttrs []attribute.KeyValue, highCardinalityAttrs []attribute.KeyValue) (context.Context, trace.Span) {
 	carrier := NewMessageCarrier(msg)
 	parentSpanContext := c.cfg.Propagator.Extract(context.Background(), carrier)
@@ -119,10 +164,26 @@ func (c *Consumer) startSpan(msg *kafka.Message, lowCardinalityAttrs []attribute
 	}
 	newCtx, span := c.cfg.tracer.Start(parentSpanContext, fmt.Sprintf("%s consume", *msg.TopicPartition.Topic), opts...)
 
-	// Inject current span context, so consumers can use it to propagate span.
 	c.cfg.Propagator.Inject(newCtx, carrier)
 
 	return newCtx, span
+}
+
+// watchSpan monitors a given span and ends it either when a new message is
+// polled (signaled via c.spanCh) or after a configured timeout, whichever
+// comes first. It decrements the spanWg when the span is ended.
+func (c *Consumer) watchSpan(span trace.Span) {
+	timer := time.NewTimer(c.cfg.consumerSpanTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-c.spanCh:
+		span.End()
+	case <-timer.C:
+		span.End()
+	}
+
+	c.spanWg.Done()
 }
 
 func getConsumedMessageAttrs(msg *kafka.Message, cfg *otelConfig) (lowCardinalityAttrs []attribute.KeyValue, highCardinalityAttrs []attribute.KeyValue) {
