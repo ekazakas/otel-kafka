@@ -93,17 +93,19 @@ func (c *Consumer) Poll(timeoutMs int) (event kafka.Event) {
 
 	switch e := e.(type) {
 	case *kafka.Message:
-		lowCardinalityAttrs, highCardinalityAttrs := getConsumedMessageAttrs(e, &c.cfg)
-		ctx, span := c.startSpan(e, lowCardinalityAttrs, highCardinalityAttrs)
+		metricAttrs := getMetricAttrs(e, &c.cfg)
+		spanAttrs := getSpanAttrs(e)
+
+		ctx, span := c.startSpan(e, metricAttrs, spanAttrs)
 		span.SetStatus(codes.Ok, "Success")
 
 		c.spanWg.Add(1)
 
 		go c.watchSpan(span)
 
-		c.messageCounter.Add(ctx, 1, metric.WithAttributes(lowCardinalityAttrs...))
-		c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(e)), metric.WithAttributes(lowCardinalityAttrs...))
-		c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(lowCardinalityAttrs...))
+		c.messageCounter.Add(ctx, 1, metric.WithAttributes(metricAttrs...))
+		c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(e)), metric.WithAttributes(metricAttrs...))
+		c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(metricAttrs...))
 	}
 
 	return e
@@ -122,18 +124,19 @@ func (c *Consumer) ReadMessage(timeout time.Duration) (*kafka.Message, error) {
 		return nil, err
 	}
 
-	lowCardinalityAttrs, highCardinalityAttrs := getConsumedMessageAttrs(msg, &c.cfg)
+	metricAttrs := getMetricAttrs(msg, &c.cfg)
+	spanAttrs := getSpanAttrs(msg)
 
-	ctx, span := c.startSpan(msg, lowCardinalityAttrs, highCardinalityAttrs)
+	ctx, span := c.startSpan(msg, metricAttrs, spanAttrs)
 	span.SetStatus(codes.Ok, "Success")
 
 	c.spanWg.Add(1)
 
 	go c.watchSpan(span)
 
-	c.messageCounter.Add(ctx, 1, metric.WithAttributes(lowCardinalityAttrs...))
-	c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(lowCardinalityAttrs...))
-	c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(lowCardinalityAttrs...))
+	c.messageCounter.Add(ctx, 1, metric.WithAttributes(metricAttrs...))
+	c.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(metricAttrs...))
+	c.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(metricAttrs...))
 
 	return msg, nil
 }
@@ -149,17 +152,16 @@ func (c *Consumer) Close() error {
 // startSpan extracts the parent span context from the kafka.Message headers,
 // creates a new consumer span, injects the new span context back into the
 // message headers, and returns the new context and span.
-func (c *Consumer) startSpan(msg *kafka.Message, lowCardinalityAttrs []attribute.KeyValue, highCardinalityAttrs []attribute.KeyValue) (context.Context, trace.Span) {
+func (c *Consumer) startSpan(msg *kafka.Message, metricAttrs []attribute.KeyValue, spanAttrs []attribute.KeyValue) (context.Context, trace.Span) {
 	carrier := NewMessageCarrier(msg)
 	parentSpanContext := c.cfg.Propagator.Extract(context.Background(), carrier)
 
 	if c.cfg.attributeInjectFunc != nil {
-		highCardinalityAttrs = append(highCardinalityAttrs, c.cfg.attributeInjectFunc(msg)...)
+		spanAttrs = append(spanAttrs, c.cfg.attributeInjectFunc(msg)...)
 	}
 
-	attrs := append(lowCardinalityAttrs, highCardinalityAttrs...)
 	opts := []trace.SpanStartOption{
-		trace.WithAttributes(attrs...),
+		trace.WithAttributes(append(metricAttrs, spanAttrs...)...),
 		trace.WithSpanKind(trace.SpanKindConsumer),
 	}
 	newCtx, span := c.cfg.tracer.Start(parentSpanContext, fmt.Sprintf("%s consume", *msg.TopicPartition.Topic), opts...)
@@ -186,8 +188,8 @@ func (c *Consumer) watchSpan(span trace.Span) {
 	c.spanWg.Done()
 }
 
-func getConsumedMessageAttrs(msg *kafka.Message, cfg *otelConfig) (lowCardinalityAttrs []attribute.KeyValue, highCardinalityAttrs []attribute.KeyValue) {
-	lowCardinalityAttrs = []attribute.KeyValue{
+func getMetricAttrs(msg *kafka.Message, cfg *otelConfig) []attribute.KeyValue {
+	return []attribute.KeyValue{
 		semconv.MessagingOperationName("consume"),
 		semconv.MessagingOperationTypeReceive,
 		semconv.MessagingSystemKafka,
@@ -195,14 +197,14 @@ func getConsumedMessageAttrs(msg *kafka.Message, cfg *otelConfig) (lowCardinalit
 		semconv.MessagingDestinationName(*msg.TopicPartition.Topic),
 		semconv.MessagingConsumerGroupName(cfg.consumerGroup),
 	}
+}
 
-	highCardinalityAttrs = []attribute.KeyValue{
+func getSpanAttrs(msg *kafka.Message) []attribute.KeyValue {
+	return []attribute.KeyValue{
 		semconv.MessagingKafkaOffset(int(msg.TopicPartition.Offset)),
 		semconv.MessagingKafkaMessageKey(string(msg.Key)),
 		semconv.MessagingMessageID(strconv.FormatInt(int64(msg.TopicPartition.Offset), 10)),
 		semconv.MessagingDestinationPartitionID(strconv.Itoa(int(msg.TopicPartition.Partition))),
 		semconv.MessagingMessageBodySize(internal.GetMessageSize(msg)),
 	}
-
-	return lowCardinalityAttrs, highCardinalityAttrs
 }

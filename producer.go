@@ -89,7 +89,7 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 	carrier := NewMessageCarrier(msg)
 	ctx := p.cfg.Propagator.Extract(context.Background(), carrier)
 
-	lowCardinalityAttrs := []attribute.KeyValue{
+	metricAttrs := []attribute.KeyValue{
 		semconv.MessagingOperationName("produce"),
 		semconv.MessagingOperationTypeSend,
 		semconv.MessagingSystemKafka,
@@ -97,17 +97,16 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 		semconv.MessagingDestinationName(*msg.TopicPartition.Topic),
 	}
 
-	highCardinalityAttrs := []attribute.KeyValue{
+	spanAttrs := []attribute.KeyValue{
 		semconv.MessagingKafkaMessageKey(string(msg.Key)),
 		semconv.MessagingMessageBodySize(internal.GetMessageSize(msg)),
 	}
 	if p.cfg.attributeInjectFunc != nil {
-		highCardinalityAttrs = append(highCardinalityAttrs, p.cfg.attributeInjectFunc(msg)...)
+		spanAttrs = append(spanAttrs, p.cfg.attributeInjectFunc(msg)...)
 	}
-	attrs := append(lowCardinalityAttrs, highCardinalityAttrs...)
 
 	opts := []trace.SpanStartOption{
-		trace.WithAttributes(attrs...),
+		trace.WithAttributes(append(metricAttrs, spanAttrs...)...),
 		trace.WithSpanKind(trace.SpanKindProducer),
 	}
 
@@ -123,7 +122,7 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 				span.SetAttributes(semconv.ErrorTypeKey.String("publish_error"))
 				span.SetStatus(codes.Error, err.Error())
 
-				lowCardinalityAttrs = append(lowCardinalityAttrs, semconv.ErrorTypeKey.String("publish_error"))
+				metricAttrs = append(metricAttrs, semconv.ErrorTypeKey.String("publish_error"))
 			} else {
 				if resMsg.TopicPartition.Partition >= 0 {
 					partitionIDAttr := semconv.MessagingDestinationPartitionID(fmt.Sprintf("%d", resMsg.TopicPartition.Partition))
@@ -131,16 +130,16 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 					span.SetAttributes(partitionIDAttr)
 					span.SetAttributes(semconv.MessagingKafkaOffset(int(resMsg.TopicPartition.Offset)))
 
-					lowCardinalityAttrs = append(lowCardinalityAttrs, partitionIDAttr)
+					metricAttrs = append(metricAttrs, partitionIDAttr)
 				}
 
 				span.SetStatus(codes.Ok, "Success")
 			}
 		}
 
-		p.messageCounter.Add(ctx, 1, metric.WithAttributes(lowCardinalityAttrs...))
-		p.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(lowCardinalityAttrs...))
-		p.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(lowCardinalityAttrs...))
+		p.messageCounter.Add(ctx, 1, metric.WithAttributes(metricAttrs...))
+		p.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(metricAttrs...))
+		p.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(metricAttrs...))
 		span.End()
 
 		if targetDeliveryChan != nil {
