@@ -6,6 +6,7 @@ import (
 	"github.com/ekazakas/otel-kafka/internal"
 	"go.opentelemetry.io/otel/codes"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -164,7 +165,13 @@ func (c *Consumer) startSpan(msg *kafka.Message, metricAttrs []attribute.KeyValu
 		trace.WithAttributes(append(metricAttrs, spanAttrs...)...),
 		trace.WithSpanKind(trace.SpanKindConsumer),
 	}
-	newCtx, span := c.cfg.tracer.Start(parentSpanContext, fmt.Sprintf("%s consume", *msg.TopicPartition.Topic), opts...)
+
+	topic := ""
+	if msg.TopicPartition.Topic != nil {
+		topic = *msg.TopicPartition.Topic
+	}
+
+	newCtx, span := c.cfg.tracer.Start(parentSpanContext, strings.TrimSpace(fmt.Sprintf("consume %s", topic)), opts...)
 
 	c.cfg.Propagator.Inject(newCtx, carrier)
 
@@ -189,14 +196,22 @@ func (c *Consumer) watchSpan(span trace.Span) {
 }
 
 func getMetricAttrs(msg *kafka.Message, cfg *otelConfig) []attribute.KeyValue {
-	return []attribute.KeyValue{
-		semconv.MessagingOperationName("consume"),
-		semconv.MessagingOperationTypeReceive,
-		semconv.MessagingSystemKafka,
-		semconv.ServerAddress(cfg.bootstrapServerHost),
-		semconv.MessagingDestinationName(*msg.TopicPartition.Topic),
-		semconv.MessagingConsumerGroupName(cfg.consumerGroup),
+	optional := make([]attribute.KeyValue, 0, 1)
+	if msg.TopicPartition.Topic != nil {
+		optional = append(optional, semconv.MessagingDestinationName(*msg.TopicPartition.Topic))
 	}
+
+	return append(
+		[]attribute.KeyValue{
+			semconv.MessagingOperationName("consume"),
+			semconv.MessagingOperationTypeReceive,
+			semconv.MessagingSystemKafka,
+			semconv.ServerAddress(cfg.bootstrapServerHost),
+			semconv.MessagingDestinationName(*msg.TopicPartition.Topic),
+			semconv.MessagingConsumerGroupName(cfg.consumerGroup),
+		},
+		optional...,
+	)
 }
 
 func getSpanAttrs(msg *kafka.Message) []attribute.KeyValue {

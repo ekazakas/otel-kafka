@@ -131,7 +131,7 @@ func TestConsumer_OpenTelemetry(t *testing.T) {
 
 		producerSpan := exportedSpans[0]
 
-		require.Equal(t, fmt.Sprintf("%s publish", testTopic), producerSpan.Name)
+		require.Equal(t, fmt.Sprintf("produce %s", testTopic), producerSpan.Name)
 		require.False(t, producerSpan.Parent.IsValid())
 		require.True(t, producerSpan.SpanContext.IsValid())
 		require.Equal(t, codes.Ok, producerSpan.Status.Code)
@@ -145,7 +145,7 @@ func TestConsumer_OpenTelemetry(t *testing.T) {
 
 		consumerSpan := exportedSpans[1]
 
-		require.Equal(t, fmt.Sprintf("%s consume", testTopic), consumerSpan.Name)
+		require.Equal(t, fmt.Sprintf("consume %s", testTopic), consumerSpan.Name)
 		require.True(t, consumerSpan.Parent.IsValid())
 		require.True(t, consumerSpan.SpanContext.IsValid())
 		require.Equal(t, codes.Ok, consumerSpan.Status.Code)

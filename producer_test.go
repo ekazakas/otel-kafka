@@ -82,7 +82,7 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 
 		span := exportedSpans[0]
 
-		require.Equal(t, fmt.Sprintf("%s publish", testTopic), span.Name)
+		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())
 		require.True(t, span.SpanContext.IsValid())
 		require.Equal(t, codes.Ok, span.Status.Code)
@@ -140,7 +140,7 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 
 		span := exportedSpans[0]
 
-		require.Equal(t, fmt.Sprintf("%s publish", testTopic), span.Name)
+		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())
 		require.True(t, span.SpanContext.IsValid())
 		require.Equal(t, codes.Ok, span.Status.Code)
@@ -201,7 +201,7 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 
 		span := exportedSpans[0]
 
-		require.Equal(t, fmt.Sprintf("%s publish", testTopic), span.Name)
+		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())
 		require.True(t, span.SpanContext.IsValid())
 		require.Equal(t, codes.Error, span.Status.Code)
@@ -212,6 +212,6 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 		require.Contains(t, span.Attributes, semconv.MessagingDestinationName(*evt.TopicPartition.Topic))
 		require.Contains(t, span.Attributes, semconv.MessagingKafkaMessageKey(string(evt.Key)))
 		require.Contains(t, span.Attributes, semconv.MessagingMessageBodySize(len(evt.Key)+len(evt.Value)))
-		require.Contains(t, span.Attributes, semconv.ErrorTypeKey.String("publish_error"))
+		require.Contains(t, span.Attributes, semconv.ErrorTypeKey.String("produce_error"))
 	})
 }

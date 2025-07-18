@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ekazakas/otel-kafka/internal"
+	"strings"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -89,13 +90,20 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 	carrier := NewMessageCarrier(msg)
 	ctx := p.cfg.Propagator.Extract(context.Background(), carrier)
 
-	metricAttrs := []attribute.KeyValue{
-		semconv.MessagingOperationName("produce"),
-		semconv.MessagingOperationTypeSend,
-		semconv.MessagingSystemKafka,
-		semconv.ServerAddress(p.cfg.bootstrapServerHost),
-		semconv.MessagingDestinationName(*msg.TopicPartition.Topic),
+	optional := make([]attribute.KeyValue, 0, 1)
+	if msg.TopicPartition.Topic != nil {
+		optional = append(optional, semconv.MessagingDestinationName(*msg.TopicPartition.Topic))
 	}
+
+	metricAttrs := append(
+		[]attribute.KeyValue{
+			semconv.MessagingOperationName("produce"),
+			semconv.MessagingOperationTypeSend,
+			semconv.MessagingSystemKafka,
+			semconv.ServerAddress(p.cfg.bootstrapServerHost),
+		},
+		optional...,
+	)
 
 	spanAttrs := []attribute.KeyValue{
 		semconv.MessagingKafkaMessageKey(string(msg.Key)),
@@ -110,7 +118,12 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 		trace.WithSpanKind(trace.SpanKindProducer),
 	}
 
-	ctx, span := p.cfg.tracer.Start(ctx, fmt.Sprintf("%s publish", *msg.TopicPartition.Topic), opts...)
+	topic := ""
+	if msg.TopicPartition.Topic != nil {
+		topic = *msg.TopicPartition.Topic
+	}
+
+	ctx, span := p.cfg.tracer.Start(ctx, strings.TrimSpace(fmt.Sprintf("produce %s", topic)), opts...)
 	p.cfg.Propagator.Inject(ctx, carrier)
 
 	tracedDeliveryChan := make(chan kafka.Event)
@@ -119,10 +132,10 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 		if resMsg, ok := evt.(*kafka.Message); ok {
 			if err := resMsg.TopicPartition.Error; err != nil {
 				span.RecordError(err)
-				span.SetAttributes(semconv.ErrorTypeKey.String("publish_error"))
+				span.SetAttributes(semconv.ErrorTypeKey.String("produce_error"))
 				span.SetStatus(codes.Error, err.Error())
 
-				metricAttrs = append(metricAttrs, semconv.ErrorTypeKey.String("publish_error"))
+				metricAttrs = append(metricAttrs, semconv.ErrorTypeKey.String("produce_error"))
 			} else {
 				if resMsg.TopicPartition.Partition >= 0 {
 					partitionIDAttr := semconv.MessagingDestinationPartitionID(fmt.Sprintf("%d", resMsg.TopicPartition.Partition))
