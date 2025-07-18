@@ -18,6 +18,8 @@ const (
 	instrumentationVersion = "1.0.0"
 	consumerGroupKey       = "group.id"
 	bootstrapServersKey    = "bootstrap.servers"
+	MinPort                = 0
+	MaxPort                = 65535
 )
 
 type (
@@ -141,7 +143,7 @@ func withConfig(kCfg kafka.ConfigMap) Option {
 					if host, port, err := net.SplitHostPort(addr); err == nil {
 						cfg.bootstrapServerHost = host
 
-						if portNumber, err := strconv.Atoi(port); err == nil {
+						if portNumber, err := strconv.Atoi(port); err == nil && portNumber >= MinPort && portNumber <= MaxPort {
 							cfg.bootstrapServerPort = int32(portNumber)
 						}
 
