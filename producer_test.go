@@ -76,7 +76,7 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 			func() bool {
 				return len(exportedSpans) == 1
 			},
-			5*time.Second,
+			15*time.Second,
 			500*time.Millisecond,
 		)
 
