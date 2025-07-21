@@ -20,7 +20,7 @@ func NewKafkaTestContainer(ctx context.Context) (*KafkaTestContainer, error) {
 	kafka, err := testkafka.Run(
 		ctx,
 		kafkaImage,
-		testkafka.WithClusterID("go-vinted-kafka-test-cluster"),
+		testkafka.WithClusterID("otel-kafka-test-cluster"),
 	)
 
 	if err != nil {
