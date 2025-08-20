@@ -3,7 +3,7 @@ module github.com/ekazakas/otel-kafka
 go 1.24.5
 
 require (
-	github.com/confluentinc/confluent-kafka-go/v2 v2.11.0
+	github.com/confluentinc/confluent-kafka-go/v2 v2.11.1
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.38.0
