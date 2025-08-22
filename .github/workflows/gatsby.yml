@@ -28,7 +28,7 @@ concurrency:
 defaults:
   run:
     shell: bash
-    working-directory: ./docs
+    working-directory: docs
 
 jobs:
   # Build job
@@ -57,6 +57,7 @@ jobs:
         with:
           node-version: "24"
           cache: ${{ steps.detect-package-manager.outputs.manager }}
+          cache-dependency-path: "docs"
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
