@@ -22,7 +22,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	serviceName := "example-consumer"
+	serviceName := "example-producer"
 
 	tracerProvider, err := examples.CreateTracer(serviceName)
 	if err != nil {
