@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - main
+      - __main
   pull_request:
 
 name: run tests
