@@ -28,7 +28,7 @@ concurrency:
 defaults:
   run:
     shell: bash
-    working-directory: ./frontend
+    working-directory: ./docs
 
 jobs:
   # Build job
