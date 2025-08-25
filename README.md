@@ -1,6 +1,17 @@
+[bugs]: https://github.com/ekazakas/otel-kafka/issues?q=is%3Aopen+is%3Aissue+label%3ABug
+[contributing]: CONTRIBUTING.md
+
 # otel-kafka
 
 OpenTelemetry instrumentation library for [confluent-kafka-go](https://github.com/confluentinc/confluent-kafka-go).
+
+---
+
+[![GoDoc](https://godoc.org/github.com/ekazakas/otel-kafka?status.svg)](https://godoc.org/github.com/ekazakas/otel-kafka)
+[![Tests](https://github.com/ekazakas/otel-kafka/workflows/test/badge.svg)](https://github.com/ekazakas/otel-kafka/actions?query=workflow%3Atest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ekazakas/otel-kafka)](https://goreportcard.com/report/github.com/ekazakas/otel-kafka)
+
+[Installation] | [Contributing]
 
 ## Installation
 
@@ -9,6 +20,55 @@ go get -u github.com/ekazakas/otel-kafka
 ```
 
 **Note:** otel-kafka uses [Go Modules](https://go.dev/wiki/Modules) to manage dependencies.
+
+## Producer
+
+Complete example located [here](https://github.com/ekazakas/otel-kafka/examples/producer/main.go)
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+producer, err := otelkafka.NewProducer(
+    kafka.ConfigMap{
+        "bootstrap.servers": "localhost:9092",
+    },
+    otelkafka.WithTracerProvider(tracerProvider),
+    otelkafka.WithMeterProvider(meterProvider),
+    otelkafka.WithPropagator(propagation.TraceContext{}),
+)
+if err != nil {
+    panic(err)
+}
+defer func() {
+    producer.Close()
+}()
+```
+
+## Consumer
+
+Complete example located [here](https://github.com/ekazakas/otel-kafka/examples/consumer/main.go)
+
+```go
+consumer, err := otelkafka.NewConsumer(
+    kafka.ConfigMap{
+        "bootstrap.servers": "localhost:9092",
+        "group.id":          "example-consumer-group",
+        "auto.offset.reset": "earliest",
+    },
+    otelkafka.WithTracerProvider(tracerProvider),
+    otelkafka.WithMeterProvider(meterProvider),
+    otelkafka.WithPropagator(propagation.TraceContext{}),
+)
+if err != nil {
+    panic(err)
+}
+defer func() {
+    if err := consumer.Close(); err != nil {
+        panic(err)
+    }
+}()
+```
 
 ## What is otel-kafka?
 
