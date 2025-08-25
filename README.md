@@ -8,7 +8,7 @@ OpenTelemetry instrumentation library for [confluent-kafka-go](https://github.co
 ---
 
 [![GoDoc](https://godoc.org/github.com/ekazakas/otel-kafka?status.svg)](https://godoc.org/github.com/ekazakas/otel-kafka)
-[![Tests](https://github.com/ekazakas/otel-kafka/workflows/test/badge.svg)](https://github.com/ekazakas/otel-kafka/actions?query=workflow%3Atest)
+[![Tests](https://github.com/ekazakas/otel-kafka/workflows/Tests/badge.svg)](https://github.com/ekazakas/otel-kafka/actions?query=workflow%3ATests)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ekazakas/otel-kafka)](https://goreportcard.com/report/github.com/ekazakas/otel-kafka)
 
 [Installation] | [Contributing]

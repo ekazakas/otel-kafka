@@ -1,10 +1,10 @@
 on:
   push:
     branches:
-      - __main
+      - main
   pull_request:
 
-name: run tests
+name: Tests
 jobs:
   test:
     runs-on: ubuntu-latest
