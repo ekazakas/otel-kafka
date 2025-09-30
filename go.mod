@@ -6,7 +6,7 @@ require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
-	github.com/testcontainers/testcontainers-go/modules/kafka v0.38.0
+	github.com/testcontainers/testcontainers-go/modules/kafka v0.39.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/metric v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
