@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [ "1.24" ]
+        go-version: [ "1.24", "1.25" ]
     env:
       GOLANGCI_LINT_VERSION: v2.1.6
 
