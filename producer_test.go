@@ -3,6 +3,11 @@ package otelkafka_test
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
+	"net"
+	"testing"
+	"time"
+
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	otelkafka "github.com/ekazakas/otel-kafka"
 	"github.com/stretchr/testify/require"
@@ -10,10 +15,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
-	"math/rand/v2"
-	"net"
-	"testing"
-	"time"
 )
 
 func TestProducer_OpenTelemetry(t *testing.T) {
@@ -70,17 +71,16 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 		producer.Flush(int((time.Second * 3).Milliseconds()))
 		require.NoError(t, traceProvider.ForceFlush(ctx))
 
-		exportedSpans := inMemorySpanExporter.GetSpans()
 		require.Eventually(
 			t,
 			func() bool {
-				return len(exportedSpans) == 1
+				return len(inMemorySpanExporter.GetSpans()) == 1
 			},
 			15*time.Second,
 			500*time.Millisecond,
 		)
 
-		span := exportedSpans[0]
+		span := inMemorySpanExporter.GetSpans()[0]
 
 		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())
@@ -135,10 +135,16 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 		require.Equal(t, int32(0), evt.TopicPartition.Partition)
 		require.Equal(t, msg.TopicPartition.Offset, evt.TopicPartition.Offset)
 
-		exportedSpans := inMemorySpanExporter.GetSpans()
-		require.Len(t, exportedSpans, 1)
+		require.Eventually(
+			t,
+			func() bool {
+				return len(inMemorySpanExporter.GetSpans()) == 1
+			},
+			15*time.Second,
+			500*time.Millisecond,
+		)
 
-		span := exportedSpans[0]
+		span := inMemorySpanExporter.GetSpans()[0]
 
 		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())
@@ -196,10 +202,16 @@ func TestProducer_OpenTelemetry(t *testing.T) {
 		require.Equal(t, msg.TopicPartition.Topic, evt.TopicPartition.Topic)
 		require.Equal(t, msg.TopicPartition.Partition, evt.TopicPartition.Partition)
 
-		exportedSpans := inMemorySpanExporter.GetSpans()
-		require.Len(t, exportedSpans, 1)
+		require.Eventually(
+			t,
+			func() bool {
+				return len(inMemorySpanExporter.GetSpans()) == 1
+			},
+			15*time.Second,
+			500*time.Millisecond,
+		)
 
-		span := exportedSpans[0]
+		span := inMemorySpanExporter.GetSpans()[0]
 
 		require.Equal(t, fmt.Sprintf("produce %s", testTopic), span.Name)
 		require.False(t, span.Parent.IsValid())

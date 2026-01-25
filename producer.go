@@ -3,9 +3,10 @@ package otelkafka
 import (
 	"context"
 	"fmt"
-	"github.com/ekazakas/otel-kafka/internal"
 	"strings"
 	"time"
+
+	"github.com/ekazakas/otel-kafka/internal"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"go.opentelemetry.io/otel/attribute"
@@ -126,8 +127,21 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 	ctx, span := p.cfg.tracer.Start(ctx, strings.TrimSpace(fmt.Sprintf("produce %s", topic)), opts...)
 	p.cfg.Propagator.Inject(ctx, carrier)
 
-	tracedDeliveryChan := make(chan kafka.Event)
-	tracedDeliveryFunc := func(targetDeliveryChan chan kafka.Event) {
+	tracedDeliveryChan := make(chan kafka.Event, 1)
+
+	if err := p.Producer.Produce(msg, tracedDeliveryChan); err != nil {
+		defer span.End()
+
+		span.RecordError(err)
+		span.SetAttributes(semconv.ErrorTypeKey.String("produce_error"))
+		span.SetStatus(codes.Error, err.Error())
+
+		return err
+	}
+
+	go func() {
+		defer span.End()
+
 		evt := <-tracedDeliveryChan
 		if resMsg, ok := evt.(*kafka.Message); ok {
 			if err := resMsg.TopicPartition.Error; err != nil {
@@ -153,19 +167,11 @@ func (p *Producer) Produce(msg *kafka.Message, deliveryChan chan kafka.Event) er
 		p.messageCounter.Add(ctx, 1, metric.WithAttributes(metricAttrs...))
 		p.messageSizeHistogram.Record(ctx, int64(internal.GetMessageSize(msg)), metric.WithAttributes(metricAttrs...))
 		p.operationDurationHistogram.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(metricAttrs...))
-		span.End()
 
-		if targetDeliveryChan != nil {
-			targetDeliveryChan <- evt
+		if deliveryChan != nil {
+			deliveryChan <- evt
 		}
-	}
+	}()
 
-	go tracedDeliveryFunc(deliveryChan)
-
-	err := p.Producer.Produce(msg, tracedDeliveryChan)
-	if err != nil {
-		span.RecordError(err)
-	}
-
-	return err
+	return nil
 }
