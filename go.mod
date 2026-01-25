@@ -1,6 +1,6 @@
 module github.com/ekazakas/otel-kafka
 
-go 1.24.5
+go 1.25.6
 
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.13.0
